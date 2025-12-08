@@ -1,0 +1,4 @@
+project_name       = "fab-sketch"
+aws_region         = "ap-northeast-2"
+db_password        = "your-secure-db-password"
+django_secret_key  = "your-django-secret-key"
