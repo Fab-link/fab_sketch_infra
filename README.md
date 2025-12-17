@@ -2,190 +2,172 @@
 
 Terraform configuration for deploying FabSketch to AWS.
 
-## 🏗️ Architecture
+## 🏗️ Current Architecture
 
 ```
-Internet → ALB → ECS Fargate → RDS PostgreSQL
+Internet → ALB → EC2 (Django) → RDS PostgreSQL
                     ↓
                 S3 (Media Files)
+                    ↓
+                Lambda (AI Generation)
 ```
 
-## 📋 Prerequisites
+## 📊 Current Resources
 
-- AWS CLI configured
-- Terraform >= 1.0
-- Docker Desktop
+### Compute
+- **EC2 Instance**: `i-0241eb14f5097a359` (t3.medium)
+- **ALB**: `fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com`
+- **Lambda**: `fabsketch-gen` (AI image generation)
 
-## 🚀 Quick Deploy
+### Storage & Database
+- **RDS**: `fab-sketch-db.chyooau22dfx.ap-northeast-2.rds.amazonaws.com` (PostgreSQL 14)
+- **S3**: `fab-sketch-media-xp8zu198`
 
-1. **Setup variables**
-   ```bash
-   cp terraform.tfvars.example terraform.tfvars
-   # Edit terraform.tfvars with your values
-   ```
+### Network
+- **VPC**: `vpc-091bd319f1b9782a7`
+- **Private Subnet**: `subnet-05ee83d9ea30a7fb8` (EC2)
+- **Public Subnets**: ALB endpoints
 
-2. **Deploy everything**
-   ```bash
-   ./deploy.sh
-   ```
+## 🚀 Infrastructure Management
 
-## 🔧 Manual Deployment
+### Initial Setup (Already Done)
+```bash
+terraform init
+terraform plan
+terraform apply
+```
 
-1. **Initialize Terraform**
-   ```bash
-   terraform init
-   ```
+### Current Status
+- ✅ Infrastructure deployed via Terraform
+- ✅ EC2 instance running Django backend
+- ✅ ALB routing traffic to EC2
+- ✅ RDS PostgreSQL connected
+- ✅ S3 bucket for media files
 
-2. **Plan deployment**
-   ```bash
-   terraform plan
-   ```
+## 🔄 Application Deployment
 
-3. **Apply infrastructure**
-   ```bash
-   terraform apply
-   ```
+**Important**: Infrastructure (Terraform) vs Application (Django) deployment are separate!
 
-4. **Build and push Docker image**
-   ```bash
-   # Get ECR URL
-   ECR_URL=$(terraform output -raw ecr_repository_url)
-   
-   # Build and push (AMD64 platform for ECS Fargate)
-   cd ../fab_sketch_backend
-   aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin $ECR_URL
-   docker buildx build --platform linux/amd64 -t fab-sketch-app .
-   docker tag fab-sketch-app:latest $ECR_URL:latest
-   docker push $ECR_URL:latest
-   
-   # Force ECS deployment
-   aws ecs update-service --cluster fab-sketch-cluster --service fab-sketch-service --force-new-deployment --region ap-northeast-2
-   ```
+### Infrastructure Changes
+```bash
+# Only when changing AWS resources
+terraform plan
+terraform apply
+```
 
-## 📊 Resources Created
+### Application Deployment
+```bash
+# For Django code changes - use backend deployment script
+cd ../fab_sketch_backend
+./deploy/deploy.sh
+```
 
-- **VPC**: Custom VPC with public/private subnets
-- **ECS**: Fargate cluster with auto-scaling
-- **RDS**: PostgreSQL 14.20 (t3.micro)
-- **ALB**: Application Load Balancer
-- **S3**: Media files storage
-- **ECR**: Docker image repository
-- **IAM**: Roles and policies
-- **SSM**: Secure parameter store
+## 📋 Resource Details
+
+### EC2 Configuration
+- **Instance Type**: t3.medium
+- **OS**: Amazon Linux 2023
+- **Location**: Private subnet (no direct internet access)
+- **Access**: Through ALB only
+- **SSH**: `ssh -i ~/.ssh/fabsketch-key ec2-user@10.0.10.18`
+
+### ALB Configuration
+- **DNS**: `fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com`
+- **Target Group**: Routes to EC2:8000
+- **Health Check**: `/health/` endpoint
+
+### RDS Configuration
+- **Engine**: PostgreSQL 14.20
+- **Instance**: db.t3.micro
+- **Database**: `fabsketchdb`
+- **User**: `fabsketch`
 
 ## 🌐 Endpoints
 
-After deployment:
-- **API**: `http://<alb-dns>/api/`
-- **Admin**: `http://<alb-dns>/admin/`
-- **Health**: `http://<alb-dns>/health/`
+- **API Base**: `http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/api/`
+- **Admin**: `http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/admin/`
+- **Health**: `http://fab-sketch-alb-1270525117.ap-northeast-2.elb.amazonaws.com/health/`
 
-## ⚠️ Demo Configuration Notes
+## 🔧 Infrastructure Updates
 
-### Public Subnet Deployment
-For demo purposes, ECS tasks are deployed in **public subnets** with public IPs assigned. This is **NOT recommended for production**.
+### Adding New AWS Resources
+1. Edit Terraform files (`.tf`)
+2. Plan changes: `terraform plan`
+3. Apply changes: `terraform apply`
 
-**Why this configuration:**
-- Private subnets require NAT Gateway ($45/month) or VPC Endpoints ($7-10/month)
-- Demo environment prioritizes cost over security
-- Allows ECS tasks to access SSM Parameter Store and ECR directly
-
-**Production recommendations:**
-1. Move ECS tasks to private subnets
-2. Add NAT Gateway for internet access
-3. Use VPC Endpoints for AWS services
-4. Implement proper security groups
-
-### Docker Platform Compatibility
-ECS Fargate requires **linux/amd64** platform. Build commands use:
-```bash
-docker buildx build --platform linux/amd64 -t fab-sketch-app .
-```
+### Modifying Existing Resources
+1. Update Terraform configuration
+2. Review plan: `terraform plan`
+3. Apply: `terraform apply`
 
 ## 💰 Cost Estimation
 
-**Monthly cost (~$15-25)**:
+**Monthly cost (~$25-35)**:
+- EC2 t3.medium: ~$15-20
 - RDS t3.micro: ~$12
-- ECS Fargate: ~$5-10
 - ALB: ~$3
 - S3: ~$1
 
-**Additional costs for production:**
-- NAT Gateway: +$45/month
-- VPC Endpoints: +$7-10/month
+## 🐛 Infrastructure Troubleshooting
 
-## 🔄 Updates
-
-To update the application:
+### EC2 Issues
 ```bash
-# Rebuild and push image
-cd fab_sketch_backend
-ECR_URL=$(terraform output -raw -chdir=../fab_sketch_infra ecr_repository_url)
-docker buildx build --platform linux/amd64 -t fab-sketch-app .
-docker tag fab-sketch-app:latest $ECR_URL:latest
-docker push $ECR_URL:latest
+# Check instance status
+aws ec2 describe-instances --instance-ids i-0241eb14f5097a359
 
-# Force ECS service update
-aws ecs update-service --cluster fab-sketch-cluster --service fab-sketch-service --force-new-deployment --region ap-northeast-2
+# SSH to instance
+ssh -i ~/.ssh/fabsketch-key ec2-user@10.0.10.18
 ```
 
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**1. 503 Service Unavailable**
-- ECS task is not running or failing health checks
-- Check: `aws ecs describe-services --cluster fab-sketch-cluster --services fab-sketch-service`
-
-**2. 504 Gateway Timeout**
-- ECS task is starting but not responding to health checks
-- Check logs: `aws logs get-log-events --log-group-name "/ecs/fab-sketch"`
-
-**3. Platform Architecture Mismatch**
-- Error: "Manifest does not contain descriptor matching platform 'linux/amd64'"
-- Solution: Use `--platform linux/amd64` when building Docker images
-
-**4. SSM Parameter Store Access Issues**
-- Error: "unable to retrieve secrets from ssm"
-- Cause: ECS tasks in private subnets without NAT Gateway
-- Solution: Use public subnets (demo) or add NAT Gateway (production)
-
-### Deployment Status Check
+### ALB Issues
 ```bash
-# Check ECS service status
-aws ecs describe-services --cluster fab-sketch-cluster --services fab-sketch-service --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}'
+# Check target health
+aws elbv2 describe-target-health --target-group-arn <target-group-arn>
 
-# Check recent events
-aws ecs describe-services --cluster fab-sketch-cluster --services fab-sketch-service --query 'services[0].events[0:3]'
-
-# Check task status
-aws ecs list-tasks --cluster fab-sketch-cluster --service-name fab-sketch-service
+# Check ALB status
+aws elbv2 describe-load-balancers --names fab-sketch-alb
 ```
+
+### RDS Issues
+```bash
+# Check RDS status
+aws rds describe-db-instances --db-instance-identifier fab-sketch-db
+```
+
+## 🔐 Security Configuration
+
+### Current Setup
+- ✅ EC2 in private subnet
+- ✅ RDS in private subnet
+- ✅ Security groups properly configured
+- ✅ IAM roles with minimal permissions
+- ✅ SSH key-based access
+
+### Security Groups
+- **ALB SG**: Allows HTTP/HTTPS from internet
+- **EC2 SG**: Allows traffic from ALB only
+- **RDS SG**: Allows PostgreSQL from EC2 only
 
 ## 🗑️ Cleanup
 
 ```bash
+# Destroy all infrastructure
 terraform destroy
 ```
 
-## 📱 Flutter Integration
+**Warning**: This will delete all data including the database!
 
-Use the ALB DNS name as your API base URL in Flutter:
-```dart
-const String API_BASE_URL = 'http://<alb-dns>/api/';
-```
+## 📝 Migration Notes
 
-## 🔐 Security Considerations
+### From ECS to EC2 (Completed)
+- **Previous**: ECS Fargate containers
+- **Current**: EC2 instance with Django
+- **Benefits**: Simpler deployment, lower cost
+- **Trade-offs**: Manual scaling, single point of failure
 
-**Current demo setup:**
-- ✅ RDS in private subnets
-- ✅ Security groups properly configured
-- ⚠️ ECS tasks in public subnets (demo only)
-- ✅ Secrets stored in SSM Parameter Store
-- ✅ IAM roles with minimal permissions
-
-**Production improvements needed:**
-- Move ECS to private subnets
-- Add WAF for ALB
-- Enable VPC Flow Logs
-- Implement proper monitoring and alerting
+### Future Improvements
+- [ ] Auto Scaling Group for high availability
+- [ ] Multi-AZ deployment
+- [ ] CloudFront CDN
+- [ ] Container deployment (EKS)
+- [ ] Monitoring and alerting
